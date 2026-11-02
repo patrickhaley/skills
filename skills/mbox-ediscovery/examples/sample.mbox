@@ -1,0 +1,94 @@
+From MAILER-DAEMON Fri Jul 17 13:45:52 2026
+Message-Id: <1@fake-corp.test>
+Date: Wed, 10 Jan 2024 09:00:00 -0500
+From: alice@fake-corp.test
+To: bob@fake-corp.test
+Subject: Kickoff call
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============2919207115224440867=="
+
+--===============2919207115224440867==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi Bob, let's kick off the new client portal project this week.
+
+--===============2919207115224440867==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="logo.bin"
+MIME-Version: 1.0
+
+RkFLRS1MT0dPLUJZVEVTLUZPUi1ERURVUC1URVNU
+
+--===============2919207115224440867==--
+
+From MAILER-DAEMON Fri Jul 17 13:45:52 2026
+Message-Id: <2@fake-corp.test>
+Date: Thu, 11 Jan 2024 10:00:00 -0500
+From: bob@fake-corp.test
+To: alice@fake-corp.test
+Subject: Re: Kickoff call
+In-Reply-To: <1@fake-corp.test>
+References: <1@fake-corp.test>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+Sounds good - heads up, I already started building my own portal site on the =
+side, separate from the official one.
+
+From MAILER-DAEMON Fri Jul 17 13:45:52 2026
+Message-Id: <calendar-1@fake-corp.test>
+Date: Fri, 12 Jan 2024 08:00:00 -0500
+From: calendar-daemon@fake-corp.test
+To: bob@fake-corp.test
+Subject: Invitation: Portal sync @ Mon Jan 15
+Content-Type: text/calendar; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+BEGIN:VCALENDAR
+END:VCALENDAR
+
+From MAILER-DAEMON Fri Jul 17 13:45:52 2026
+Message-Id: <3@fake-corp.test>
+Date: Mon, 15 Jan 2024 11:00:00 -0500
+From: alice@fake-corp.test
+To: bob@fake-corp.test
+Subject: Re: Kickoff call
+In-Reply-To: <2@fake-corp.test>
+References: <1@fake-corp.test> <2@fake-corp.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============7528737368418376789=="
+
+--===============7528737368418376789==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Please don't launch that separate portal site without written approval - that=
+'s required under our agreement.
+
+--===============7528737368418376789==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="logo.bin"
+MIME-Version: 1.0
+
+RkFLRS1MT0dPLUJZVEVTLUZPUi1ERURVUC1URVNU
+
+--===============7528737368418376789==--
+
+From MAILER-DAEMON Fri Jul 17 13:45:52 2026
+Message-Id: <ooo-1@fake-corp.test>
+Date: Sat, 20 Jan 2024 09:00:00 -0500
+From: bob@fake-corp.test
+To: alice@fake-corp.test
+Subject: Automatic reply: Re: Kickoff call
+Auto-Submitted: auto-replied
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+I am out of office until Jan 22.
+

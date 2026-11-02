@@ -7,6 +7,7 @@ I'm building these in public and sharing them in case they're useful to someone 
 ## What's here
 
 - [`skills/`](skills/) – one folder per skill, each with a `SKILL.md`
+  - [`mbox-ediscovery`](skills/mbox-ediscovery/SKILL.md)
   - [`task-harness`](skills/task-harness/SKILL.md)
 
 ## Using them
