@@ -16,6 +16,15 @@ I'm building these in public and sharing them in case they're useful to someone 
 
 ## Using them
 
-Copy any skill folder into your tool's skills directory (for example `~/.claude/skills/` for Claude Code) and adapt it to suit.
+In Claude Code, install them all as a plugin:
+
+```
+/plugin marketplace add patrickhaley/skills
+/plugin install patrick@patrickhaley
+```
+
+Skills are then available as `/patrick:<skill-name>`. Run `/plugin marketplace update patrickhaley` to pick up changes.
+
+For other tools, copy any skill folder into the tool's skills directory and adapt it to suit.
 
 No guarantees. Use, fork and remix freely.

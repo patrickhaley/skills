@@ -1,0 +1,11 @@
+{
+  "name": "patrickhaley",
+  "owner": { "name": "patrickhaley" },
+  "plugins": [
+    {
+      "name": "patrick",
+      "source": "./",
+      "description": "Personal skills: mbox-ediscovery, pr-review-agents, task-harness"
+    }
+  ]
+}
