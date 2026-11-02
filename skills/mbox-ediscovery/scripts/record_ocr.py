@@ -4,10 +4,12 @@ sha256 hash, back into attachment_text.jsonl.
 
 The orchestrating Claude session runs this after directly reading (via the
 Read tool, which supports images natively) each image flagged
-needs_ocr: true in attachment_text.jsonl, passing what it read as --text.
+needs_ocr: true in attachment_text.jsonl, passing what it read as --text-file.
+The text comes from attacker-controllable images, so it goes through a file,
+never the shell command line.
 
 Run:
-  python3 record_ocr.py --case-dir path/to/case_dir --hash <sha256> --text "extracted text or description here"
+  python3 record_ocr.py --case-dir path/to/case_dir --hash <sha256> --text-file path/to/ocr.txt
 """
 import argparse
 import json
@@ -18,7 +20,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--case-dir", required=True, type=Path)
     ap.add_argument("--hash", required=True)
-    ap.add_argument("--text", required=True)
+    ap.add_argument("--text-file", required=True, type=Path)
     args = ap.parse_args()
 
     path = args.case_dir / "attachment_text.jsonl"
@@ -26,7 +28,7 @@ def main():
     found = False
     for row in rows:
         if row["hash"] == args.hash:
-            row["text"] = args.text
+            row["text"] = args.text_file.read_text()
             row["needs_ocr"] = False
             found = True
     if not found:

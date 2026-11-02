@@ -106,7 +106,7 @@ def main():
                 att_texts = [attachment_text[h]["text"] for h in m["attachment_hashes"]
                              if h in attachment_text and attachment_text[h]["text"]]
                 row = {
-                    "id": m["message_id"] or f"idx-{m['index']}",
+                    "id": f"idx-{m['index']}",  # unique; Message-Ids repeat across copies of a message
                     "date": m["date"],
                     "from": m["from"],
                     "to": m["to"],

@@ -62,11 +62,13 @@ Rows in `attachment_text.jsonl` with `needs_ocr: true` are images that need read
 
 Only OCR images attached to non-noise messages inside the approved scope. If that is more than about 50, tell the user the count and ask whether to do all of them or only images on messages that mention an approved keyword.
 
-For each image, open it with your file-reading tool (it reads images), then record what it shows:
+For each image, open it with your file-reading tool (it reads images). Write what it shows to `<case-dir>/ocr/<sha256>.txt` with your file-writing tool, then record it:
 
 ```bash
-python3 scripts/record_ocr.py --case-dir <case-dir> --hash <sha256> --text "<what the image shows>"
+python3 scripts/record_ocr.py --case-dir <case-dir> --hash <sha256> --text-file <case-dir>/ocr/<sha256>.txt
 ```
+
+Never put image text in the command itself. Images can contain shell syntax such as `$(...)`.
 
 Note anything you skipped for the report.
 
@@ -104,7 +106,7 @@ Each sub-agent reads one batch and returns a finding for every message. Any batc
 
 Without a workflow tool, start one sub-agent per batch using the prompt in `buildPrompt()` in `workflow_classify.js`, and retry short batches the same way.
 
-Save the findings as `{"findings": [...]}` to `<case-dir>/findings.json`. Any batch in `batchesStillShortAfterRetry` goes in the report as unclassified, listed by message id.
+Save the findings as `{"findings": [...]}` to `<case-dir>/findings.json`. Any batch in `batchesStillShortAfterRetry` goes in the report as unclassified, listed by message id (`idx-<N>`, the message's position in the mbox; its Message-Id is in `manifest.jsonl`).
 
 ### 7. Collect flagged emails
 
@@ -112,7 +114,7 @@ Save the findings as `{"findings": [...]}` to `<case-dir>/findings.json`. Any ba
 python3 scripts/collect_flagged.py --case-dir <case-dir> --findings <case-dir>/findings.json --mbox <path.mbox>
 ```
 
-Writes `flagged_emails/<date>_<short-id>/` with the original `.eml`, the decoded `body.txt` and the attachments for each flagged message.
+Writes `flagged_emails/<date>_idx-<N>/` with the original `.eml`, the decoded `body.txt` and the attachments for each flagged message.
 
 ### 8. Write the report
 
