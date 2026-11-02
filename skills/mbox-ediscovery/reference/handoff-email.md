@@ -1,8 +1,8 @@
 # Handoff email
 
 Draft this at the end and show it in chat. Do not send it. The user uploads
-the files to a secure file store (Google Drive, SharePoint and so on) and
-fills in the links.
+the contents of `share/` (nothing else from the case folder) to a secure
+file store (Google Drive, SharePoint and so on) and fills in the links.
 
 Keep the email short. Put counts and file links in it, not quotes or email
 content: the evidence stays in the access-controlled file store. Keep the
@@ -21,9 +21,13 @@ the links and the sender's name.
     The email review for <case name> is complete. It covers <N> emails
     from <first date> to <last date>, searched for: <keyword summary>.
 
-    - Report: [Link to <case-slug>-ediscovery-report-<YYYY-MM-DD>.md]
-    - Flagged emails (<N>, with original messages and attachments):
-      [Link to flagged_emails folder]
+    - Report (Word): [Link to <Case>_Report.docx]
+    - Flagged emails (<N>), as one PDF with bookmarks and their
+      attachments: [Link to <Case>_Email_Bundle.pdf]
+    - Index of the flagged emails (opens in Excel): [Link to
+      <Case>_Email_Index.csv]
+    - <Only if any> Original files that could not go in the PDF, such as
+      spreadsheets: [Link to Native_Files folder]
     - <Only if any> Items needing manual review (<N> unclassified or
       unreadable): listed in the report under "Coverage and exclusions"
 

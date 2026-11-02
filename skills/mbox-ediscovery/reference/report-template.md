@@ -69,12 +69,14 @@ requester and their advisers draw the conclusions.
     - Flagged as relevant: <N>
 
     ## Flagged emails
-    Copies (original .eml, decoded body, attachments) are in
-    `<case-dir>/flagged_emails/`.
+    Each flagged email is in <Case>_Email_Bundle.pdf, in date order, with
+    its attachments. <Case>_Email_Index.csv lists them with page numbers.
 
 ## Rules
 
 - Every finding cites a date, the participants and a direct quote.
+- Cite emails by message id (`idx-<N>`). The share pack turns these into
+  "Email 0001 (bundle p. 5)" in the Word copy.
 - If a selected template finds nothing, keep its section and say so ("No
   requests found in this export"). A missing section reads as "not checked".
 - Leave out sections for templates that were not selected.

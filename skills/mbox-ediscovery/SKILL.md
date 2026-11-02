@@ -1,6 +1,6 @@
 ---
 name: mbox-ediscovery
-description: Review an mbox email export (Google Vault, Gmail Takeout, Thunderbird, Apple Mail and others) for a legal or eDiscovery question ("did X ever mention, request or agree to Y?") and produce a facts-only cited report, a folder of flagged emails and a draft handoff email. Use only when the user asks for /mbox-ediscovery.
+description: Review an mbox email export (Google Vault, Gmail Takeout, Thunderbird, Apple Mail and others) for a legal or eDiscovery question ("did X ever mention, request or agree to Y?") and produce a facts-only cited report, a ready-to-share pack (report in Word, flagged emails as one bookmarked PDF, CSV index) and a draft handoff email. Use only when the user asks for /mbox-ediscovery.
 disable-model-invocation: true
 ---
 
@@ -39,6 +39,7 @@ Paths below are relative to this skill's folder. Use `<case-dir>` for the case f
 
 - Python 3 standard library only. Nothing to install for parsing.
 - PDF text needs `pdftotext` (poppler). Check with `which pdftotext`. If it is missing, ask before installing it (`brew install poppler` on macOS). Without it, PDFs are recorded as not machine-readable.
+- The share pack (step 9) needs [`uv`](https://docs.astral.sh/uv/) (it fetches `pypdf` for that script only), Google Chrome or Chromium (renders emails to PDF) and macOS `textutil` (writes the Word report). Check before step 9 and ask before installing anything.
 
 ## Steps
 
@@ -114,7 +115,7 @@ Save the findings as `{"findings": [...]}` to `<case-dir>/findings.json`. Any ba
 python3 scripts/collect_flagged.py --case-dir <case-dir> --findings <case-dir>/findings.json --mbox <path.mbox>
 ```
 
-Writes `flagged_emails/<date>_idx-<N>/` with the original `.eml`, the decoded `body.txt` and the attachments for each flagged message.
+Writes `flagged_emails/<date>_idx-<N>/` with the original `.eml`, the decoded `body.txt` and the attachments for each flagged message. This is the internal working copy; step 9 builds what gets shared.
 
 ### 8. Write the report
 
@@ -122,7 +123,25 @@ Follow `reference/report-template.md`. Save it as `<case-dir>/<case-slug>-edisco
 
 Before posting, remove duplicate flags (the same quote can show up on several messages in a thread) and spot-check a few findings against `flagged_emails/`. Then reread the report against the facts-only rules in the template and rewrite any sentence that draws a conclusion.
 
-### 9. Draft the handoff email
+### 9. Build the share pack
+
+The people receiving the review (often lawyers) need files they can open without special tools. Everything else in the case folder (`.jsonl`, `.json`, `.mbox`, batches) is working data and is never shared.
+
+```bash
+uv run scripts/build_share_pack.py --case-dir <case-dir> --findings <case-dir>/findings.json \
+  --report <case-dir>/<report>.md --case-name "<case name>"
+```
+
+Writes `<case-dir>/share/`:
+
+- `<Case>_Report.docx`: the report in Word. Each `idx-<N>` in the report becomes `Email 0001 (bundle p. 5)`.
+- `<Case>_Email_Bundle.pdf`: every flagged email in date order, numbered 0001 onwards. Each email has a header block (date, from, to, cc, subject, attachments), then the body, then its images and PDF attachments. There is a bookmark for every email and PDF attachment. Remote images and scripts in emails are blocked, never loaded.
+- `<Case>_Email_Index.csv`: one row per email with its reference, page in the bundle, quote and attachments. Opens in Excel.
+- `Native_Files/<ref>/`: attachments that can't go in a PDF (spreadsheets, Word files, damaged or password-protected PDFs). The email's header block says where each one is.
+
+Open the bundle and check a few emails against their bookmarks before handing over. Share only the `share/` folder.
+
+### 10. Draft the handoff email
 
 Follow `reference/handoff-email.md`. Show the draft in chat with placeholders for the requester's name, the file links and the sender's name. Do not send it.
 
@@ -134,5 +153,7 @@ Follow `reference/handoff-email.md`. Show the draft in chat with placeholders fo
 - **Missing image evidence:** check `decorative: true` rows in `attachment_text.jsonl`. The size threshold for skipping images (15 KB) can catch a small screenshot.
 
 ## Testing
+
+`uv run scripts/test_share_pack.py` runs ingest, collect and the share pack on a synthetic mailbox (HTML email with an inline image, PDF and spreadsheet attachments, a damaged PDF) and checks the output. Pass a folder path to keep the output for a look.
 
 `examples/sample.mbox` is a synthetic five-message mailbox with a thread, a duplicate attachment, a calendar invite and an auto-reply. Regenerate it with `python3 scripts/generate_fixture.py`.
