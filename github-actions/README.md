@@ -13,6 +13,7 @@ Workflows are grouped by folder, and every file starts with its folder name. `.g
 | **claude/** | | |
 | [`claude-mentions.yml`](claude/claude-mentions.yml) | Responds to `@claude` in issues, PRs and review comments (repo members only) | `ANTHROPIC_API_KEY` |
 | [`claude-issue-triage.yml`](claude/claude-issue-triage.yml) | Labels new issues using the repo's existing labels. Never comments | `ANTHROPIC_API_KEY` |
+| `claude-pr-review.yml` | Multi-agent PR review. It comes with its agents and command, and the [`pr-review-agents`](../skills/pr-review-agents/SKILL.md) skill tailors all of it to the repo | `ANTHROPIC_API_KEY` |
 | **jira/** | | |
 | [`jira-link-pr.yml`](jira/jira-link-pr.yml) | Adds the Jira issue summary to a PR, keyed from the PR title. *Reusable* | `JIRA_API_TOKEN` |
 | [`jira-deployment-signal.yml`](jira/jira-deployment-signal.yml) | On merge, records a GitHub deployment and links it to the Jira issue. Deploys nothing. *Reusable* | `JIRA_API_TOKEN` (+ optional `JIRA_API_EMAIL`) |

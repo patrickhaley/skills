@@ -1,0 +1,96 @@
+name: Claude PR review
+# Runs on new and ready-for-review PRs: rewrites the PR summary, then runs the /review-pr
+# command, which fans out to the five reviewer agents in .claude/agents/ and posts only the
+# findings that survive its own noteworthiness filter.
+# Use workflow_dispatch for a manual re-review after addressing feedback.
+#
+# Needs: the Claude GitHub App installed on the repo, and an ANTHROPIC_API_KEY secret.
+# PRs from forks don't receive secrets, so this only reviews branches in the same repo.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+
+jobs:
+  claude-review:
+    if: |
+      github.actor != 'dependabot[bot]' &&
+      !contains(github.event.pull_request.title || '', '[skip-review]') &&
+      !contains(github.event.pull_request.title || '', '[WIP]') &&
+      (github.event.pull_request.draft == false || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          # The review only reads git history and talks to GitHub through `gh`, so the
+          # token doesn't need to stay in .git/config.
+          persist-credentials: false
+
+      - name: Summarize and review PR
+        id: claude-review
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          use_sticky_comment: true
+          prompt: |
+            PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+            REPO: ${{ github.repository }}
+
+            ## Task 1: Update PR Summary
+
+            Read the PR diff using `gh pr diff ${{ github.event.pull_request.number || inputs.pr_number }}` and the current PR body using `gh pr view ${{ github.event.pull_request.number || inputs.pr_number }} --json body -q .body`.
+
+            Generate a clear, structured PR description and update the PR body using `gh pr edit`. Preserve any user-written content at the top of the existing body (above any "---" separator or "## Summary" heading). Append or replace the generated summary below.
+
+            Use this format for the generated section:
+
+            ---
+            ## Summary
+            <1-3 sentence overview of what this PR does and why>
+
+            ## Changes
+            <Bulleted list of specific changes, categorized by area:>
+            - **API:** FastAPI routes in `backend/app/api/routes/`, dependencies in `backend/app/api/deps.py`
+            - **Models & CRUD:** SQLModel models in `backend/app/models.py` and helpers in `backend/app/crud.py`
+            - **Migrations:** Alembic revisions in `backend/app/alembic/versions/`
+            - **Core & Auth:** Settings, security, JWT and database setup in `backend/app/core/`
+            - **Frontend:** React routes, components and hooks in `frontend/src/`
+            - **Generated client:** Regenerated OpenAPI client in `frontend/src/client/`
+            - **Emails:** React Email sources in `packages/react-email/` and rendered HTML in `backend/app/email-templates/`
+            - **Docker & deployment:** `compose*.yml`, Dockerfiles, `deploy.yml` / `deploy-docker-compose.yml`
+            - **CI/CD:** GitHub Actions, workflows, Dependabot or pre-commit (`.pre-commit-config.yaml`) changes
+            - **Docs:** README, `development.md`, `deployment*.md` or release notes updates
+            - **Tests:** Pytest (`backend/tests/`) or Playwright (`frontend/tests/`) additions or modifications
+            - **Config:** `.env`, `pyproject.toml`, `uv.lock`, `package.json`, `bun.lock` or other build and dependency configuration
+
+            ## Apps Affected
+            <List which of backend, frontend, emails (`packages/react-email`) are impacted, by name>
+
+            Only include categories and sections that apply. Be concise.
+
+            ## Task 2: Code Review
+
+            After updating the PR summary, perform a thorough code review:
+            /review-pr
+            REPO: ${{ github.repository }}
+            PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          claude_args: |
+            --allowedTools "Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr edit *),Bash(gh pr comment *),Bash(gh pr review *)"
+            --model opus
