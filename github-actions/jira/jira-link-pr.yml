@@ -1,0 +1,53 @@
+name: Jira link PR
+# Adds a Jira issue link/summary to a PR based on its title.
+#
+# Reusable workflow. Call it from a workflow that triggers on `pull_request`, so the PR
+# event context is inherited:
+#
+#   on:
+#     pull_request:
+#       types: [opened, edited, synchronize]
+#   jobs:
+#     jira:
+#       uses: ./.github/workflows/jira-link-pr.yml          # same repo
+#       # uses: <owner>/<shared-repo>/.github/workflows/jira-link-pr.yml@v1   # shared repo
+#       with:
+#         jira-base-url: https://your-domain.atlassian.net
+#         issue-regexp: 'ABC-\d+'
+#       secrets:
+#         JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+on:
+  workflow_call:
+    inputs:
+      jira-base-url:
+        description: Base URL of the Jira instance, e.g. https://your-domain.atlassian.net
+        type: string
+        required: true
+      issue-regexp:
+        description: JavaScript regexp used to find the Jira issue key in the PR title.
+        type: string
+        default: '[A-Z][A-Z0-9]+-\d+'
+    secrets:
+      JIRA_API_TOKEN:
+        description: Jira API token, in the format the jira-description-action expects.
+        required: true
+
+jobs:
+  connect-jira:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'dependencies') }}
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      # Third-party action pinned to a commit SHA (supply-chain safety) rather than a
+      # mutable tag. SHA is the upstream `v.10.0.0` release (its latest, oddly named).
+      - uses: cakeinpanic/jira-description-action@235b8296c8b4f88c564297246810f084f853dac1 # v.10.0.0
+        name: connect-pr-to-jira
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          jira-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-base-url: ${{ inputs.jira-base-url }}
+          use: pr-title
+          custom-issue-number-regexp: ${{ inputs.issue-regexp }}

@@ -21,6 +21,15 @@ Before committing, review the full diff (`git diff --staged`) for any of the abo
 - One folder per skill: `skills/<skill-name>/SKILL.md`
 - Folder names are lowercase kebab-case and match the `name` in frontmatter
 - Supporting files (scripts, references, templates) live inside that skill's folder
+- Example GitHub Actions workflows live in `github-actions/<group>/<group>-<name>.yml` (for example `claude/claude-mentions.yml`). The filename prefix matches the folder so files stay grouped when copied into a flat `.github/workflows/`. List each one, with its required secrets, in `github-actions/README.md`. They are reference copies for other repos. Never put them in `.github/workflows/`, which would make them run in this repo.
+
+## GitHub Actions examples
+
+Before committing a workflow, also check that:
+
+- Secrets are referenced only as `${{ secrets.NAME }}` and use generic names (for example `ANTHROPIC_API_KEY`, not one tied to an employer)
+- It contains no org or repo names, runner labels, internal registries, or internal URLs
+- Third-party actions are pinned to a version tag or commit SHA
 
 ## SKILL.md format
 

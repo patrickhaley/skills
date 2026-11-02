@@ -1,0 +1,48 @@
+name: Release
+
+# Automated releases driven by Conventional Commits (pair with lint-pr-title.yml).
+# On every push to main, release-please opens/updates a "release PR" per package in
+# release-please-config.json. Merging that PR bumps the version, updates CHANGELOG.md,
+# creates a git tag (e.g. v1.1.0, or my-package-v1.1.0 in a monorepo), and publishes a
+# GitHub Release.
+#
+# ── Why a GitHub App token and not GITHUB_TOKEN ──────────────────────────────────
+#   1. If the org/repo has "Allow GitHub Actions to create and approve pull requests"
+#      disabled, that setting overrides the workflow's own `pull-requests: write`. With
+#      GITHUB_TOKEN, release-please computes versions and pushes its release branches,
+#      then fails at the last step with "GitHub Actions is not permitted to create or
+#      approve pull requests".
+#   2. PRs opened by GITHUB_TOKEN do not trigger `on: pull_request` workflows, so release
+#      PRs would never run your CI checks. An App token has no such restriction.
+#
+# Needs secrets RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY from a GitHub App installed on
+# the repo with Contents and Pull requests read/write.
+# Until both secrets exist this job fails at the token step — deliberately loud, rather
+# than silently falling back to a token that cannot open the PR.
+
+on:
+  push:
+    branches: [main]
+
+# The App token performs every API call, so GITHUB_TOKEN itself needs nothing.
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate a GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Run release-please
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          # Manifest mode: config + versions come from these files at the repo root.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

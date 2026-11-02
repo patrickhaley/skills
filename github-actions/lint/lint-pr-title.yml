@@ -1,0 +1,115 @@
+name: Lint PR title
+
+# Assumes squash-merge, so the PR title becomes the commit on main. If you use
+# release-please, that title is what it reads to decide version bumps. This check fails the PR if the title isn't a valid
+# Conventional Commit, so a change can't land without a releasable (or intentionally
+# non-releasing) type.
+#
+# On failure it posts an explanatory comment on the PR rather than leaving a bare red X —
+# the common cause is opening a PR without typing a title, in which case GitHub derives
+# one from the branch name ("feat/my-branch" -> "Feat/my-branch"), which is never valid.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  lint-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title is a Conventional Commit
+        id: lint
+        uses: amannn/action-semantic-pull-request@0723387faaf9b38adef4775cd42cfd5155ed6017 # v5.5.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Types that are allowed. feat -> minor, fix -> patch, `!` -> major.
+          # The rest are valid but non-releasing.
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            perf
+            test
+            ci
+            build
+            revert
+            style
+          # Scope is optional and, when present, unrestricted — no repo-specific scope
+          # enum, so this file can be copied to another repo without editing an allow-list.
+          requireScope: false
+
+      # Explain the failure in the PR itself. Without this the contributor sees only a red
+      # X and has to open the Actions log to find out what is wrong.
+      - name: Explain the failure on the PR
+        if: always() && steps.lint.outputs.error_message != null
+        uses: actions/github-script@v7
+        env:
+          LINT_ERROR: ${{ steps.lint.outputs.error_message }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        with:
+          script: |
+            const marker = '<!-- pr-title-lint -->';
+            const body = [
+              marker,
+              '### PR title is not a Conventional Commit',
+              '',
+              'We squash-merge, so this title becomes the commit on `main` and release-please',
+              'reads it to decide version bumps. It has to parse.',
+              '',
+              '**Your title**',
+              '```',
+              process.env.PR_TITLE,
+              '```',
+              '',
+              '**What the linter said**',
+              '```',
+              process.env.LINT_ERROR,
+              '```',
+              '',
+              '**Fix:** edit the title to `type: description` — for example',
+              '`feat: add login page` or `fix(api): handle empty response`.',
+              '',
+              'Types: `feat` `fix` `docs` `chore` `refactor` `perf` `test` `ci` `build` `revert` `style`.',
+              'Scope is optional and unrestricted, e.g. `fix(api): ...`.',
+              '',
+              '> Most often this fires because the PR was opened without typing a title, so',
+              '> GitHub derived one from the branch name (`feat/my-branch` becomes',
+              '> `Feat/my-branch`). That form never validates — the type must be lowercase and',
+              '> followed by a colon.',
+              '',
+              'Editing the title re-runs this check automatically; no new push is needed.',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number,
+            });
+            const existing = comments.find((c) => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      # Clean up once the title is fixed, so a stale complaint doesn't linger on the PR.
+      - name: Remove the explanation once fixed
+        if: steps.lint.outputs.error_message == null
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- pr-title-lint -->';
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: context.issue.number,
+            });
+            for (const c of comments.filter((c) => c.body?.includes(marker))) {
+              await github.rest.issues.deleteComment({ owner, repo, comment_id: c.id });
+            }

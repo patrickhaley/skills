@@ -1,0 +1,49 @@
+name: Lint Claude plugins
+# For Claude Code plugin marketplace repos only. Validates the marketplace catalog and
+# every plugin manifest (plus skill/agent frontmatter) whenever that content changes.
+# Expects the marketplace at .claude-plugin/ and one plugin per folder under plugins/.
+
+on:
+  pull_request:
+    paths:
+      - ".claude-plugin/**"
+      - "plugins/**"
+  push:
+    branches: [main]
+    paths:
+      - ".claude-plugin/**"
+      - "plugins/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate marketplace catalog
+        run: claude plugin validate .
+
+      - name: Validate each plugin (strict)
+        run: |
+          status=0
+          for dir in plugins/*/; do
+            plugin="${dir%/}"
+            echo "::group::Validating ${plugin}"
+            if ! claude plugin validate "./${plugin}" --strict; then
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status

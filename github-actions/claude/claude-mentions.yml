@@ -1,0 +1,53 @@
+name: Claude mentions
+# Responds to @claude mentions in issues, PRs, and review comments. Only users with
+# OWNER, MEMBER or COLLABORATOR access can trigger it.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      ) &&
+      contains(
+        fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+        github.event_name == 'issues' && github.event.issue.author_association ||
+        github.event_name == 'pull_request_review' && github.event.review.author_association ||
+        github.event.comment.author_association
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 50 # Enough history for git log/diff without full clone overhead
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d # v1.0.266
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          claude_args: |
+            --allowedTools "Read,Glob,Grep,LS,Task,Skill,WebFetch,WebSearch,Bash(git status),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git blame *),Bash(git grep *),Bash(git branch *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr diff *),Bash(gh pr list *),Bash(gh pr comment *),Bash(gh pr edit *),Bash(gh label create *),Bash(gh issue view *),Bash(gh issue list *),Bash(gh issue comment *),Bash(gh search *),Bash(gh api repos/*),Bash(gh release view *)"
+            --model default

@@ -1,0 +1,31 @@
+name: Lint workflows
+# Lints GitHub Actions workflows (and composite actions under actions/) with actionlint
+# whenever they change.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "actions/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "actions/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run actionlint
+        # Official install script, pinned to a release tag (script and binary) rather than
+        # `main`. Bump both together.
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color

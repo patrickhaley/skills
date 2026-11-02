@@ -1,0 +1,354 @@
+name: Jira deployment signal
+# Records a GitHub deployment for a merged PR and links it back to that PR's Jira issue, so
+# both systems show which commit reached which environment. It only *signals*: nothing is
+# deployed here, the cluster reconciler watching the branch does the actual rollout.
+#
+# Reusable workflow. The `pull_request` trigger stays in the CALLER, which also owns its own
+# `branches:` and `paths:` filters (this workflow inherits the caller's event context):
+#
+#   on:
+#     pull_request:
+#       types: [closed]
+#       branches: [dev, staging, main]
+#       paths:
+#         - 'packages/**'
+#         - 'Dockerfile*'
+#   jobs:
+#     deployment-signal:
+#       uses: ./.github/workflows/jira-deployment-signal.yml          # same repo
+#       # uses: <owner>/<shared-repo>/.github/workflows/jira-deployment-signal.yml@v1   # shared repo
+#       permissions:
+#         contents: read
+#         deployments: write
+#       with:
+#         jira_base_url: https://your-domain.atlassian.net
+#         issue_regexp: 'ABC-[0-9]+'
+#         app_name: frontend
+#         version: ${{ needs.build.outputs.version }}
+#         branch_environments: |
+#           main:prod
+#           staging:stg
+#           dev:dev
+#       secrets:
+#         JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+#
+# `permissions:` on the calling job is load-bearing wherever the repo's default GITHUB_TOKEN
+# permissions are read-only: a reusable workflow can never request more than the caller's
+# token is allowed to grant, so without it the run fails before any step with "is requesting
+# 'deployments: write', but is only allowed 'deployments: none'".
+#
+# `merged == true` is asserted below rather than in the caller, because `types: [closed]`
+# also fires for PRs that were closed without merging.
+#
+# Inputs are snake_case. Note `issue_regexp` here and `issue-regexp` in jira-link-pr.yml name
+# the same concept differently, and the regexp dialects differ too (see the input description).
+
+on:
+  workflow_call:
+    inputs:
+      branch_environments:
+        description: >-
+          Newline-separated `branch:environment` pairs mapping a merged PR's base branch to
+          the logical environment name. A merge into a branch that is not listed fails the
+          run, so this must cover every branch in the caller's `branches:` filter.
+        type: string
+        required: true
+      app_name:
+        description: >-
+          Application being deployed; used in the GitHub environment name and the deployment
+          description. Empty (the default) uses the repository name.
+        type: string
+        default: ""
+      environment_name_format:
+        description: >-
+          Template for the GitHub environment name. `{environment}` and `{app}` are
+          substituted. Use `"{environment}"` on its own to match GitHub Environments that
+          carry protection rules.
+        type: string
+        default: "{environment}-{app}"
+      version:
+        description: >-
+          Version string to record, ideally the one the caller's build workflow actually
+          published. Empty (the default) records the merge commit's short SHA instead.
+          Nothing is derived here, so this record can never disagree with the artifact that
+          was built.
+        type: string
+        default: ""
+      success_description:
+        description: >-
+          Description set on the successful deployment status. Truncated to the 140
+          characters the GitHub API accepts.
+        type: string
+        default: "Signal only. The cluster reconciler performs the actual rollout."
+      issue_regexp:
+        description: >-
+          POSIX extended regexp (`grep -oE`) matching the Jira issue key in the PR title.
+          Note the dialect differs from jira-link-pr.yml's JavaScript regexp: write `[0-9]+`,
+          not `\d+`.
+        type: string
+        default: "[A-Z][A-Z0-9]+-[0-9]+"
+      jira_base_url:
+        description: Base URL of the Jira instance, e.g. https://your-domain.atlassian.net
+        type: string
+        required: true
+      fail_on_jira_error:
+        description: >-
+          Fail the run when the Jira remote link cannot be created. Off by default: the merge
+          has already happened, so a red X on a merged PR cannot undo anything.
+        type: boolean
+        default: false
+    secrets:
+      JIRA_API_TOKEN:
+        # Accepts either shape, because jira-link-pr.yml's action and Jira's REST API want
+        # different things and both conventions are in use. Supply JIRA_API_EMAIL alongside a
+        # bare token, or store the colon-joined pair under this name alone.
+        description: >-
+          Jira API token, or `email:api_token` when JIRA_API_EMAIL is not supplied.
+        required: true
+      JIRA_API_EMAIL:
+        description: >-
+          Jira account email. Only needed when JIRA_API_TOKEN holds a bare API token rather
+          than the `email:api_token` pair.
+        required: false
+
+jobs:
+  signal-deployment:
+    # One job: environment mapping and version resolution are cheap string work, so splitting
+    # them into separate jobs would only add runner starts and `outputs:` plumbing.
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Resolve environment, version and Jira issue
+        id: resolve
+        env:
+          # Event-payload values reach the script through `env`, never inline `${{ }}`: a
+          # branch name or PR title can contain shell metacharacters. Caller `inputs` go the
+          # same way here for uniformity, and because `branch_environments` is multiline.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH_ENVIRONMENTS: ${{ inputs.branch_environments }}
+          APP_NAME_INPUT: ${{ inputs.app_name }}
+          ENVIRONMENT_NAME_FORMAT: ${{ inputs.environment_name_format }}
+          VERSION_INPUT: ${{ inputs.version }}
+          ISSUE_REGEXP: ${{ inputs.issue_regexp }}
+        run: |
+          APP_NAME="${APP_NAME_INPUT:-${GITHUB_REPOSITORY##*/}}"
+
+          # Matched by string comparison, not by interpolating the branch name into a regexp,
+          # so a branch called `.*` cannot match another environment's entry.
+          ENVIRONMENT=""
+          while IFS= read -r entry; do
+            entry="${entry//[[:space:]]/}"
+            if [ -z "$entry" ]; then
+              continue
+            fi
+            case "$entry" in
+              *:*) ;;
+              *)
+                echo "::error::branch_environments entry is not branch:environment -> $entry"
+                exit 1
+                ;;
+            esac
+            if [ "${entry%%:*}" = "$BASE_REF" ]; then
+              ENVIRONMENT="${entry#*:}"
+              ENVIRONMENT="${ENVIRONMENT%%:*}"
+              break
+            fi
+          done <<< "$BRANCH_ENVIRONMENTS"
+
+          if [ -z "$ENVIRONMENT" ]; then
+            echo "::error::No environment mapped for base branch '$BASE_REF'. Add it to branch_environments, or narrow the caller's branches: filter."
+            exit 1
+          fi
+
+          GH_ENVIRONMENT="${ENVIRONMENT_NAME_FORMAT//\{environment\}/$ENVIRONMENT}"
+          GH_ENVIRONMENT="${GH_ENVIRONMENT//\{app\}/$APP_NAME}"
+          if [ -z "$GH_ENVIRONMENT" ]; then
+            echo "::error::environment_name_format produced an empty environment name."
+            exit 1
+          fi
+
+          # merge_commit_sha is the commit that landed on the base branch (the squashed
+          # commit, for a squash merge) and so is what was actually shipped. It is briefly
+          # null while GitHub computes it, hence the head fallback.
+          EFFECTIVE_SHA="${MERGE_SHA:-$HEAD_SHA}"
+
+          VERSION="${VERSION_INPUT#v}"
+          if [ -n "$VERSION" ]; then
+            VERSION_LABEL="v$VERSION"
+          else
+            VERSION_LABEL="${EFFECTIVE_SHA:0:7}"
+          fi
+
+          # A malformed regexp makes grep exit 2, which the extraction below would otherwise
+          # swallow as "no issue key" on every run, forever.
+          printf '' | grep -qE "$ISSUE_REGEXP" || REGEXP_STATUS=$?
+          if [ "${REGEXP_STATUS:-1}" -gt 1 ]; then
+            echo "::error::issue_regexp is not a valid POSIX extended regexp: $ISSUE_REGEXP"
+            exit 1
+          fi
+          ISSUE_KEY=$(printf '%s' "$PR_TITLE" | grep -oE "$ISSUE_REGEXP" | head -1 || true)
+
+          echo "Base branch:        $BASE_REF"
+          echo "Environment:        $ENVIRONMENT"
+          echo "GitHub environment: $GH_ENVIRONMENT"
+          echo "Application:        $APP_NAME"
+          echo "Version:            $VERSION_LABEL"
+          echo "Commit:             $EFFECTIVE_SHA"
+          echo "Jira issue:         ${ISSUE_KEY:-none found in PR title}"
+
+          {
+            echo "environment=$ENVIRONMENT"
+            echo "github_environment=$GH_ENVIRONMENT"
+            echo "app_name=$APP_NAME"
+            echo "version_label=$VERSION_LABEL"
+            echo "effective_sha=$EFFECTIVE_SHA"
+            echo "issue_key=$ISSUE_KEY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Record GitHub deployment
+        id: deployment
+        # Two REST calls via github-script instead of a third-party deployment action, which
+        # avoids another dependency to pin and keep updated.
+        uses: actions/github-script@v7
+        env:
+          # Through `env` rather than inline `${{ }}`: a value substituted into a JS body
+          # could break its syntax.
+          DEPLOY_SHA: ${{ steps.resolve.outputs.effective_sha }}
+          GH_ENVIRONMENT: ${{ steps.resolve.outputs.github_environment }}
+          ENVIRONMENT: ${{ steps.resolve.outputs.environment }}
+          APP_NAME: ${{ steps.resolve.outputs.app_name }}
+          VERSION_LABEL: ${{ steps.resolve.outputs.version_label }}
+          SUCCESS_DESCRIPTION: ${{ inputs.success_description }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const environment = process.env.GH_ENVIRONMENT;
+            const sha = process.env.DEPLOY_SHA;
+
+            // Both of these defaults have to be overridden. `auto_merge` defaults to true,
+            // which makes the API try to merge the default branch into `ref` and answer 202
+            // with no deployment at all; `required_contexts` defaults to every check on the
+            // commit and 409s if any one of them is not successful. This records a commit
+            // that has already merged, so neither gate applies. `production_environment` is
+            // deliberately left unset (the API sets it true only for an environment named
+            // literally "production").
+            const { data: deployment } = await github.rest.repos.createDeployment({
+              owner,
+              repo,
+              ref: sha,
+              environment,
+              description: `Deployment signal for ${process.env.APP_NAME} ${process.env.VERSION_LABEL} to ${process.env.ENVIRONMENT}`.slice(0, 140),
+              auto_merge: false,
+              required_contexts: [],
+              payload: {
+                app: process.env.APP_NAME,
+                version: process.env.VERSION_LABEL,
+                commit: sha,
+                pull_request: process.env.PR_NUMBER || null,
+              },
+            });
+
+            if (!deployment || !deployment.id) {
+              core.setFailed(`GitHub returned no deployment for ${environment} at ${sha}.`);
+              return;
+            }
+            core.info(`Created deployment ${deployment.id} for ${environment} at ${sha}.`);
+
+            // The API caps a status description at 140 characters and 422s beyond it, so the
+            // caller-supplied string is truncated rather than trusted.
+            await github.rest.repos.createDeploymentStatus({
+              owner,
+              repo,
+              deployment_id: deployment.id,
+              state: 'success',
+              description: (process.env.SUCCESS_DESCRIPTION || '').slice(0, 140),
+              log_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            });
+
+            core.setOutput('deployment_id', String(deployment.id));
+
+      - name: Link deployment to the Jira issue
+        # Runs after the deployment record, never before and never instead: the GitHub record
+        # is the primary artifact and must not depend on a third-party API being reachable.
+        if: steps.resolve.outputs.issue_key != ''
+        env:
+          JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_API_EMAIL: ${{ secrets.JIRA_API_EMAIL }}
+          FAIL_ON_JIRA_ERROR: ${{ inputs.fail_on_jira_error }}
+          ISSUE_KEY: ${{ steps.resolve.outputs.issue_key }}
+          GH_ENVIRONMENT: ${{ steps.resolve.outputs.github_environment }}
+          VERSION_LABEL: ${{ steps.resolve.outputs.version_label }}
+          EFFECTIVE_SHA: ${{ steps.resolve.outputs.effective_sha }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+        run: |
+          # `curl -u` rather than a hand-built Basic header. The header was previously built
+          # with `base64`, whose GNU coreutils default wraps at 76 columns: any credential
+          # pair over 57 bytes -- which is every current ATATT-style Atlassian token, at ~213
+          # bytes -- came back with newlines embedded in it. curl builds the header itself.
+          # An Atlassian API token is alphanumeric plus `=_-`, so a colon inside one means the
+          # secret already holds the joined pair. Joining it to JIRA_API_EMAIL again would
+          # produce `email:email:token` and a 401 that looks identical to a revoked token, so
+          # the redundant email is dropped and named instead.
+          if [ -n "$JIRA_API_EMAIL" ]; then
+            case "$JIRA_API_TOKEN" in
+              *:*)
+                echo "::warning::JIRA_API_TOKEN already holds 'email:api_token', so JIRA_API_EMAIL was ignored. Remove one of the two."
+                JIRA_AUTH="$JIRA_API_TOKEN"
+                ;;
+              *)
+                JIRA_AUTH="$JIRA_API_EMAIL:$JIRA_API_TOKEN"
+                ;;
+            esac
+          else
+            JIRA_AUTH="$JIRA_API_TOKEN"
+          fi
+          case "$JIRA_AUTH" in
+            *:*) ;;
+            *)
+              echo "::warning::JIRA_API_TOKEN is not in email:api_token form and JIRA_API_EMAIL was not supplied; skipping the Jira link."
+              exit 0
+              ;;
+          esac
+
+          RESPONSE="$RUNNER_TEMP/jira-remotelink.json"
+          DEPLOYMENTS_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/deployments"
+
+          # globalId turns the POST into an upsert, so re-running the workflow updates the
+          # existing link rather than stacking another copy onto the issue.
+          PAYLOAD=$(jq -n \
+            --arg global_id "github-deployment:$GITHUB_REPOSITORY:$GH_ENVIRONMENT:$EFFECTIVE_SHA" \
+            --arg url "$DEPLOYMENTS_URL" \
+            --arg title "Deployed to $GH_ENVIRONMENT ($VERSION_LABEL)" \
+            --arg summary "GitHub deployment $DEPLOYMENT_ID of $VERSION_LABEL to $GH_ENVIRONMENT at commit $EFFECTIVE_SHA." \
+            '{globalId: $global_id, relationship: "deployed to", object: {url: $url, title: $title, summary: $summary}}')
+
+          HTTP_CODE=$(curl -sS -o "$RESPONSE" -w '%{http_code}' -X POST \
+            -u "$JIRA_AUTH" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            -d "$PAYLOAD" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/remotelink" || true)
+
+          if [ "${HTTP_CODE:-000}" -ge 200 ] && [ "${HTTP_CODE:-000}" -lt 300 ]; then
+            echo "Jira remote link recorded on $ISSUE_KEY (HTTP $HTTP_CODE)."
+            exit 0
+          fi
+
+          # Only Jira's structured error fields are logged, capped at 300 characters. The raw
+          # body is not echoed: these logs are readable by anyone who can read the calling
+          # repo's Actions, and a Jira error body can carry account details.
+          DETAIL=$(jq -r '[(.errorMessages // [])[], (.errors // {} | to_entries[] | "\(.key): \(.value)")] | join("; ")' "$RESPONSE" 2>/dev/null | head -c 300 || true)
+          echo "::warning::Jira remote link failed for $ISSUE_KEY (HTTP $HTTP_CODE). ${DETAIL:-No structured error detail returned.}"
+          if [ "$FAIL_ON_JIRA_ERROR" = "true" ]; then
+            exit 1
+          fi

@@ -11,6 +11,8 @@ I'm building these in public and sharing them in case they're useful to someone 
 - [`mbox-ediscovery`](skills/mbox-ediscovery/SKILL.md)
 - [`task-harness`](skills/task-harness/SKILL.md)
 
+- [`github-actions/`](github-actions/) – example GitHub Actions workflows to copy into other repos (they don't run here)
+
 ## Using them
 
 Copy any skill folder into your tool's skills directory (for example `~/.claude/skills/` for Claude Code) and adapt it to suit.
