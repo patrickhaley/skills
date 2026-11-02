@@ -1,4 +1,4 @@
-# skills
+# Skills by @patrickhaley
 
 My personal collection of skills, commands, prompts and workflows for AI tools.
 
