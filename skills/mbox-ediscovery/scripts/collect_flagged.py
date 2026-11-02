@@ -5,19 +5,19 @@ classification pass.
 
 findings.json shape: {"findings": [{"message_id": ..., "relevant": true, ...}, ...]}
 
-Message ids match build_batches.py: the Message-Id header, or "idx-<N>"
-(position in the mbox) for messages that have no Message-Id.
+Message ids match build_batches.py: "idx-<N>", the message's position in the
+mbox. Message-Id headers are not unique (exports often hold several copies of
+one message), so they are never used as keys.
 
 Run:
   python3 collect_flagged.py --case-dir path/to/case_dir --findings path/to/findings.json --mbox path/to/export.mbox
-Writes: <case-dir>/flagged_emails/<date>_<short-id>/{original.eml, body.txt, attachments/...}
+Writes: <case-dir>/flagged_emails/<date>_idx-<N>/{original.eml, body.txt, attachments/...}
 """
 import argparse
 import email
 import email.policy
 import json
 import mailbox
-import re
 from pathlib import Path
 
 from ingest import resolve_mbox
@@ -31,11 +31,6 @@ def load_jsonl(path: Path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def safe_slug(text: str, length: int = 24) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", text or "unknown").strip("-")
-    return slug[:length] or "unknown"
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -44,7 +39,7 @@ def main():
     ap.add_argument("--mbox", required=True, type=Path)
     args = ap.parse_args()
 
-    manifest = {(m["message_id"] or f"idx-{m['index']}"): m
+    manifest = {f"idx-{m['index']}": m
                 for m in load_jsonl(args.case_dir / "manifest.jsonl")}
     findings = json.loads(args.findings.read_text())["findings"]
     relevant_ids = {f["message_id"] for f in findings if f.get("relevant")}
@@ -60,9 +55,11 @@ def main():
         m = wanted.get(i)
         if not m:
             continue
-        short_id = safe_slug(m["message_id"] or f"idx-{i}")
+        short_id = f"idx-{i}"
         folder = out_root / f"{(m['date'] or 'undated')[:10]}_{short_id}"
         folder.mkdir(parents=True, exist_ok=True)
+        if (folder / "original.eml").exists():
+            raise SystemExit(f"Refusing to overwrite {folder}; use a fresh flagged_emails/ folder")
         (folder / "original.eml").write_bytes(raw_msg.as_bytes())
         (folder / "body.txt").write_text(m["body_text"] or "")
         for h in m["attachment_hashes"]:
