@@ -17,6 +17,7 @@ Workflows are grouped by folder, and every file starts with its folder name. `.g
 | **jira/** | | |
 | [`jira-link-pr.yml`](jira/jira-link-pr.yml) | Adds the Jira issue summary to a PR, keyed from the PR title. *Reusable* | `JIRA_API_TOKEN` |
 | [`jira-deployment-signal.yml`](jira/jira-deployment-signal.yml) | On merge, records a GitHub deployment and links it to the Jira issue. Deploys nothing. *Reusable* | `JIRA_API_TOKEN` (+ optional `JIRA_API_EMAIL`) |
+| [`jira-key-guard.yml`](jira/jira-key-guard.yml) | Fails PRs that mention Jira keys from other projects, so Jira doesn't link them and their automations don't move those tickets. *Reusable* | — |
 | **lint/** | | |
 | [`lint-pr-title.yml`](lint/lint-pr-title.yml) | Fails PRs whose title isn't a Conventional Commit, and explains why in a comment | — |
 | [`lint-workflows.yml`](lint/lint-workflows.yml) | Runs actionlint on `.github/workflows/` | — |
@@ -43,14 +44,14 @@ Third-party actions are pinned to commit SHAs (with the version in a comment). G
 
 ### Jira
 
-Both are reusable workflows. Copy the file, then add a caller in the same repo:
+All three are reusable workflows. Copy the file, then add a caller in the same repo:
 
 ```yaml
 # .github/workflows/jira.yml
 name: Jira
 on:
   pull_request:
-    types: [opened, edited, synchronize, closed]
+    types: [opened, edited, reopened, synchronize, closed]
     branches: [main]
 
 jobs:
@@ -62,6 +63,15 @@ jobs:
       issue-regexp: 'ABC-\d+'
     secrets:
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  key-guard:
+    if: github.event.action != 'closed'
+    uses: ./.github/workflows/jira-key-guard.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      allowed-projects: ABC
 
   deployment-signal:
     if: github.event.action == 'closed'
