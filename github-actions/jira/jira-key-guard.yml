@@ -1,0 +1,122 @@
+name: Jira key guard
+# Fails a PR that mentions Jira issue keys from projects this repo doesn't own.
+#
+# Jira's GitHub integration links a PR to every issue key it finds in the PR title,
+# body, branch name or commit messages. That project's workflow triggers and automation
+# rules then act on the link (for example "PR merged -> Done"), so a PR that cites
+# another team's ticket as background can move that ticket through their workflow.
+#
+# This check fails the PR if any of those places holds a key from a project not in
+# `allowed-projects`. A misspelled allowed key fails too, since it links nothing.
+# To mention another ticket safely, drop the hyphen ("ABC 123"): Jira won't parse it.
+# File contents aren't scanned by Jira, so they aren't checked here.
+#
+# Reusable workflow. Call it from a workflow that triggers on `pull_request`:
+#
+#   on:
+#     pull_request:
+#       types: [opened, edited, reopened, synchronize]
+#   jobs:
+#     jira-key-guard:
+#       uses: ./.github/workflows/jira-key-guard.yml
+#       permissions:
+#         contents: read
+#         pull-requests: read
+#       with:
+#         allowed-projects: ABC
+#
+# No secrets needed: it reads the PR with the default GITHUB_TOKEN.
+#
+# If AI agents write PRs or commits in the repo, add a rule to its AGENTS.md or
+# CLAUDE.md so they follow it up front, not after the check fails. For example:
+#
+#   **Only ABC Jira keys in PR titles, PR bodies, branch names and commit messages.**
+#   Jira links a PR to every key it finds there, and that project's automations then
+#   act on it, so citing another team's ticket can move it through their workflow.
+#   Write other projects' tickets without the hyphen (`XYZ 123`). The
+#   `jira-key-guard.yml` check fails PRs that break this rule, including misspelled
+#   ABC keys, which link nothing. Keys inside files aren't scanned by Jira and are fine.
+
+on:
+  workflow_call:
+    inputs:
+      allowed-projects:
+        description: Space-separated Jira project keys this repo may reference, e.g. "ABC XYZ".
+        type: string
+        required: true
+      ignored-prefixes:
+        description: Space-separated tokens that look like Jira keys but aren't, e.g. "UTF" in UTF-8.
+        type: string
+        default: UTF SHA ISO CVE GHSA HTTP
+      long-lived-branches:
+        description: >-
+          Space-separated head branches whose commits were already checked when they
+          landed there (for example "dev staging"). PRs from them check only title and body.
+        type: string
+        default: main
+
+jobs:
+  check-jira-keys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.user.type != 'Bot'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Reject Jira keys from other projects
+        uses: actions/github-script@v7
+        env:
+          # Passed via env, not ${{ }} in the script, so input values can't inject code.
+          ALLOWED_PROJECTS: ${{ inputs.allowed-projects }}
+          IGNORED_PREFIXES: ${{ inputs.ignored-prefixes }}
+          LONG_LIVED_BRANCHES: ${{ inputs.long-lived-branches }}
+        with:
+          script: |
+            const words = s => new Set((s || '').split(/[\s,]+/).filter(Boolean));
+            const allowed = words(process.env.ALLOWED_PROJECTS);
+            const ignored = words(process.env.IGNORED_PREFIXES);
+            const longLived = words(process.env.LONG_LIVED_BRANCHES);
+            if (allowed.size === 0) {
+              core.setFailed('allowed-projects is empty.');
+              return;
+            }
+
+            // shortcut: letters-only project keys, so IDs like "V24-28" don't match;
+            // widen to [A-Z][A-Z0-9]+ if one of your project keys contains a digit.
+            const KEY = /\b([A-Z]{2,10})-\d+\b/g;
+
+            const pr = context.payload.pull_request;
+            const commits = longLived.has(pr.head.ref) ? [] : await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            const sources = [
+              ['PR title', pr.title],
+              ['PR body', pr.body || ''],
+              ['branch name', pr.head.ref],
+              ...commits.map(c => [`commit ${c.sha.slice(0, 7)}`, c.commit.message]),
+            ];
+
+            const hits = [];
+            for (const [where, text] of sources) {
+              for (const m of text.matchAll(KEY)) {
+                if (!allowed.has(m[1]) && !ignored.has(m[1])) hits.push(`${m[0]} in ${where}`);
+              }
+            }
+
+            const projects = [...allowed].join(', ');
+            if (hits.length > 0) {
+              core.setFailed(
+                `Jira keys from projects other than ${projects} would link this PR to those ` +
+                'tickets and let their automations transition them:\n  ' + hits.join('\n  ') +
+                '\nWrite them without the hyphen (e.g. "ABC 123"). If one is a misspelled ' +
+                'allowed key, correct it. Commit messages need an amend or rebase; the title ' +
+                'and body can be edited and this check re-runs.'
+              );
+            } else {
+              console.log(`No keys outside ${projects} in title, body, branch or ${commits.length} commits.`);
+            }
