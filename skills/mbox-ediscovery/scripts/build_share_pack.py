@@ -133,7 +133,12 @@ def render_email_html(ref, msg, html_body, text_body, cids, atts, att_notes):
     def hv(name):
         return html.escape(str(msg.get(name) or ""))
     if html_body:
-        body = re.sub(r"<(script|base|meta)\b[^>]*>(.*?</script>)?", "", html_body, flags=re.I | re.S)
+        # Repeat until stable: one pass lets a nested "<me<meta>ta ...>" rebuild a tag.
+        # <meta refresh> is not covered by CSP and could load a local file into the PDF.
+        body, prev = html_body, None
+        while body != prev:
+            prev = body
+            body = re.sub(r"<(script|base|meta)\b[^>]*>(.*?</script>)?", "", body, flags=re.I | re.S)
         used = set()
 
         def swap(m):
@@ -287,6 +292,9 @@ def main():
             page_html.write_text(page)
             page_pdf = tmp / f"{ref}.pdf"
             html_to_pdf(chrome, page_html, page_pdf, tmp / "chrome-profile")
+            # Defence in depth: the printed page must be this email, not somewhere it navigated to.
+            if f"Email {ref}" not in PdfReader(page_pdf).pages[0].extract_text():
+                raise SystemExit(f"Email {ref} ({mid}) did not render as expected; check {eml}")
 
             start = len(writer.pages)
             writer.append(str(page_pdf))
@@ -318,7 +326,9 @@ def main():
         with open(out / f"{prefix}_Email_Index.csv", "w", newline="", encoding="utf-8-sig") as fh:
             w = csv.DictWriter(fh, fieldnames=list(rows[0]) if rows else ["Ref"])
             w.writeheader()
-            w.writerows(rows)
+            # Email text is untrusted: stop Excel reading a cell like "=HYPERLINK(...)" as a formula.
+            w.writerows({k: "'" + v if isinstance(v, str) and v[:1] in "=+-@\t\r" else v
+                         for k, v in r.items()} for r in rows)
 
         def cite(mt):
             if mt[0] not in ref_of:
