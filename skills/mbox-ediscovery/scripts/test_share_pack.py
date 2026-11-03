@@ -36,14 +36,16 @@ def two_page_pdf() -> bytes:
     return buf.getvalue()
 
 
-def build_mbox(path: Path):
+def build_mbox(path: Path, secret: Path):
     box = mailbox.mbox(str(path))
     a = EmailMessage()
     a["From"], a["To"], a["Date"] = "jane@example.com", "john@example.com", "Mon, 05 Feb 2024 10:00:00 +0000"
     a["Subject"] = "Signed quote"
     a.set_content("Plain fallback")
     a.add_alternative('<p>See the <b>quote</b>.</p><img src="cid:logo1">'
-                      '<img src="https://tracker.example.com/p.gif"><script>alert(1)</script>', subtype="html")
+                      '<img src="https://tracker.example.com/p.gif"><script>alert(1)</script>'
+                      # nested tag survives a single regex pass and would redirect to a local file
+                      f'<me<meta>ta http-equiv="refresh" content="0;url={secret.as_uri()}">', subtype="html")
     a.get_payload()[1].add_related(PNG, "image", "png", cid="<logo1>")
     a.add_attachment(two_page_pdf(), maintype="application", subtype="pdf", filename="Quote.pdf")
     a.add_attachment(b"col1,col2\n1,2\n", maintype="application",
@@ -51,7 +53,7 @@ def build_mbox(path: Path):
     box.add(a)
     b = EmailMessage()
     b["From"], b["To"], b["Date"] = "john@example.com", "jane@example.com", "Sun, 04 Feb 2024 09:00:00 +0000"
-    b["Subject"] = "Deposit <question>"
+    b["Subject"] = "=Deposit <question>"
     b.set_content("Can we discuss the deposit?\n\n<not html>")
     b.add_attachment(b"%PDF-broken", maintype="application", subtype="pdf", filename="Broken.pdf")
     box.add(b)
@@ -66,7 +68,9 @@ def main():
     with tempfile.TemporaryDirectory() as t:
         t = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(t)  # pass a dir to keep the output
         mbox, case = t / "test.mbox", t / "case"
-        build_mbox(mbox)
+        secret = t / "secret.txt"
+        secret.write_text("LOCAL-SECRET-TEXT")
+        build_mbox(mbox, secret)
         run(sys.executable, "ingest.py", "--mbox", str(mbox), "--out-dir", str(case))
         findings = {"findings": [
             {"message_id": "idx-0", "relevant": True, "matched_terms": ["quote"], "quote": "See the quote."},
@@ -85,6 +89,7 @@ def main():
         share = case / "share"
         rows = list(csv.DictReader(open(share / "Test_Case_Email_Index.csv", encoding="utf-8-sig")))
         assert [r["Source id"] for r in rows] == ["idx-1", "idx-0"], "emails must be in date order"
+        assert rows[0]["Subject"] == "'=Deposit <question>", "formula-like cells must be neutralised"
         assert rows[0]["Ref"] == "0001" and rows[0]["Bundle page"] == "1"
         assert rows[1]["Attachments"] == "Quote.pdf; Costs.xls", rows[1]["Attachments"]  # inline logo not listed
         assert rows[1]["Native files"] == "Native_Files/0002/Costs.xls"
@@ -98,7 +103,8 @@ def main():
         assert bundle.get_destination_page_number(outline[2][0]) == len(bundle.pages) - 2  # 2-page PDF at the end
         assert bundle.pages[email2_start].images, "inline cid image must be embedded"
         text = "".join(p.extract_text() for p in bundle.pages)
-        assert "[external image not loaded]" in text and "<not html>" in text and "Deposit <question>" in text, "plain text must be escaped, not parsed"
+        assert "LOCAL-SECRET-TEXT" not in text, "email HTML must not navigate to local files"
+        assert "[external image not loaded]" in text and "<not html>" in text and "=Deposit <question>" in text, "plain text must be escaped, not parsed"
 
         docx = zipfile.ZipFile(share / "Test_Case_Report.docx").read("word/document.xml").decode()
         assert "Email 0002 (bundle p. " in docx, "idx ids must become email refs"
